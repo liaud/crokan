@@ -1,0 +1,21 @@
+[package]
+name = "crokan"
+version = "0.1.0"
+authors = ["Romain Vaillant <git@rphv.dev>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+
+maths = { path = "./maths" }
+oorandom = "11.1.2"
+
+[workspace]
+
+members = [
+    "maths"
+]
+
+[profile.dev.package.maths]
+opt-level = 1
