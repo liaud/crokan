@@ -1,15 +1,15 @@
 mod frame;
 
-use crate::frame::FrameBuffer;
+use crate::frame::{Texture, Srgb, LinearRgb};
 use maths::*;
 use std::io;
 use std::path::Path;
 
 const ASPECT: f32 = 3. / 2.;
 const MAX_DEPTH: u32 = 50;
-const SPP: u32 = 200;
+const SPP: u32 = 50;
 
-const FRAME_WIDHT: u32 = 1200;
+const FRAME_WIDHT: u32 = 200;
 const FRAME_HEIGHT: u32 = (FRAME_WIDHT as f32 / ASPECT) as u32;
 
 #[derive(Debug, Copy, Clone)]
@@ -100,7 +100,7 @@ fn random_scene(rng: &mut oorandom::Rand32) -> Vec<Sphere> {
 fn main() -> Result<(), io::Error> {
     let mut rng = oorandom::Rand32::new(188557);
 
-    let mut frame = FrameBuffer::new(FRAME_WIDHT, FRAME_HEIGHT);
+    let mut render_target: Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
 
     let spheres = random_scene(&mut rng);
     let lookat_from = p3(13., 2., -3.);
@@ -125,14 +125,14 @@ fn main() -> Result<(), io::Error> {
     let lower_left = origin - viewport_u / 2. - viewport_v / 2. + focus_dist * w;
     let lens_radius = aperture / 2.0;
 
-    for y in 0..frame.height {
-        for x in 0..frame.width {
+    for y in 0..render_target.height {
+        for x in 0..render_target.width {
             let weight = 1. / SPP as f32;
             let mut color = v3(0., 0., 0.);
             for _ in 0..SPP {
-                let s = (x as f32 + rng.rand_float()) / (frame.width - 1) as f32;
-                let t = ((frame.height - y) as f32 - rng.rand_float()) as f32
-                    / (frame.height - 1) as f32;
+                let s = (x as f32 + rng.rand_float()) / (render_target.width - 1) as f32;
+                let t = ((render_target.height - y) as f32 - rng.rand_float()) as f32
+                    / (render_target.height - 1) as f32;
 
                 let rd = lens_radius * random_in_unit_disk(&mut rng);
                 let offset = u * rd.x + v * rd.y;
@@ -144,20 +144,29 @@ fn main() -> Result<(), io::Error> {
                 color = color + weight * trace(&mut rng, &spheres[..], &ray, MAX_DEPTH);
             }
 
-            let color = v3(color.x.sqrt(), color.y.sqrt(), color.z.sqrt());
-            let rgb = v3(255., 255., 255.) * color.saturate();
 
-            *frame.pixel_mut(x, y) = frame::Srgb {
-                r: rgb.x as u8,
-                g: rgb.y as u8,
-                b: rgb.z as u8,
+            *render_target.pixel_mut(x, y) = LinearRgb {
+                r: color.x,
+                g: color.y,
+                b: color.z,
             };
         }
 
-        let per = y as f32 / frame.height as f32 * 100.;
+        let per = y as f32 / render_target.height as f32 * 100.;
         println!("{}%", per);
     }
 
+    let mut frame: Texture<Srgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
+    render_target.copy_to(&mut frame, |p| {
+        let color = v3(p.r.sqrt(), p.g.sqrt(), p.b.sqrt());
+        let rgb = v3(255., 255., 255.) * color.saturate();
+
+        Srgb {
+            r: rgb.x as u8,
+            g: rgb.y as u8,
+            b: rgb.z as u8,
+        }
+    });
     frame::save_as_ppm(Path::new("render.ppm"), &frame)
 }
 

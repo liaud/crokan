@@ -1,43 +1,62 @@
 use std::io::Error;
 use std::path::Path;
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, Default)]
+pub struct LinearRgb {
+    pub r: f32,
+    pub g: f32,
+    pub b: f32,
+}
+
+#[derive(Debug, Copy, Clone, Default)]
 pub struct Srgb {
     pub r: u8,
     pub g: u8,
     pub b: u8,
 }
 
-pub struct FrameBuffer {
-    pub pixels: Vec<Srgb>,
+#[derive(Debug)]
+pub struct Texture<P: Copy> {
+    pixels: Vec<P>,
     pub width: u32,
     pub height: u32,
 }
 
-impl FrameBuffer {
-    pub fn new(width: u32, height: u32) -> FrameBuffer {
+impl<P: Copy + Default> Texture<P> {
+    pub fn new(width: u32, height: u32) -> Self {
         let mut pixels = Vec::new();
-        pixels.resize((width * height) as usize, Srgb { r: 0, g: 0, b: 0 });
+        pixels.resize((width * height) as usize, P::default());
 
-        FrameBuffer {
+        Self {
             pixels,
             width,
             height,
         }
     }
 
-    pub fn pixel_mut(&mut self, x: u32, y: u32) -> &mut Srgb {
+    pub fn pixel_mut(&mut self, x: u32, y: u32) -> &mut P {
         let index = (y * self.width + x) as usize;
         &mut self.pixels[index]
     }
 
-    pub fn pixel(&self, x: u32, y: u32) -> Srgb {
+    pub fn pixel(&self, x: u32, y: u32) -> P {
         let index = (y * self.width + x) as usize;
         self.pixels[index]
     }
+
+    pub fn copy_to<DestP: Copy, M>(&self, dest: &mut Texture<DestP>, map: M)
+        where M: Fn(P) -> DestP
+    {
+        assert_eq!(self.width, dest.width);
+        assert_eq!(self.height, dest.height);
+
+        for (dst, src) in dest.pixels.iter_mut().zip(self.pixels.iter()) {
+            *dst = map(*src);
+        }
+    }
 }
 
-pub fn save_as_ppm(output: &Path, frame: &FrameBuffer) -> Result<(), Error> {
+pub fn save_as_ppm(output: &Path, frame: &Texture<Srgb>) -> Result<(), Error> {
     use std::fs::File;
     use std::io::prelude::*;
     use std::io::BufWriter;
