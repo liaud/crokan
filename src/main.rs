@@ -100,9 +100,25 @@ fn random_scene(rng: &mut oorandom::Rand32) -> Vec<Sphere> {
 fn main() -> Result<(), io::Error> {
     let mut rng = oorandom::Rand32::new(188557);
 
-    let mut render_target: Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
-
     let spheres = random_scene(&mut rng);
+    let mut render_target: Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
+    render(&mut rng, &spheres[..], &mut render_target);
+
+    let mut frame: Texture<Srgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
+    render_target.copy_to(&mut frame, |p| {
+        let color = v3(p.r.sqrt(), p.g.sqrt(), p.b.sqrt());
+        let rgb = v3(255., 255., 255.) * color.saturate();
+
+        Srgb {
+            r: rgb.x as u8,
+            g: rgb.y as u8,
+            b: rgb.z as u8,
+        }
+    });
+    frame::save_as_ppm(Path::new("render.ppm"), &frame)
+}
+
+fn render(rng: &mut oorandom::Rand32, spheres: &[Sphere], render_target: &mut Texture<LinearRgb>) {
     let lookat_from = p3(13., 2., -3.);
     let lookat_to = p3(0., 0., 0.);
 
@@ -134,14 +150,14 @@ fn main() -> Result<(), io::Error> {
                 let t = ((render_target.height - y) as f32 - rng.rand_float()) as f32
                     / (render_target.height - 1) as f32;
 
-                let rd = lens_radius * random_in_unit_disk(&mut rng);
+                let rd = lens_radius * random_in_unit_disk(rng);
                 let offset = u * rd.x + v * rd.y;
                 let ray = ray(
                     origin + offset,
                     (lower_left + viewport_u * s + viewport_v * t) - origin - offset,
                 );
 
-                color = color + weight * trace(&mut rng, &spheres[..], &ray, MAX_DEPTH);
+                color = color + weight * trace(rng, &spheres[..], &ray, MAX_DEPTH);
             }
 
 
@@ -155,19 +171,6 @@ fn main() -> Result<(), io::Error> {
         let per = y as f32 / render_target.height as f32 * 100.;
         println!("{}%", per);
     }
-
-    let mut frame: Texture<Srgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
-    render_target.copy_to(&mut frame, |p| {
-        let color = v3(p.r.sqrt(), p.g.sqrt(), p.b.sqrt());
-        let rgb = v3(255., 255., 255.) * color.saturate();
-
-        Srgb {
-            r: rgb.x as u8,
-            g: rgb.y as u8,
-            b: rgb.z as u8,
-        }
-    });
-    frame::save_as_ppm(Path::new("render.ppm"), &frame)
 }
 
 fn trace(rng: &mut oorandom::Rand32, spheres: &[Sphere], trace_ray: &Ray, depth: u32) -> Vec3 {
