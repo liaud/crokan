@@ -4,12 +4,15 @@ use crate::frame::{Texture, Srgb, LinearRgb};
 use maths::*;
 use std::io;
 use std::path::Path;
+use std::sync::{Mutex, Arc};
+use std::thread;
 
 const ASPECT: f32 = 3. / 2.;
 const MAX_DEPTH: u32 = 50;
-const SPP: u32 = 50;
+const SPP: u32 = 500;
+const THREAD_COUNT: u32 = 16;
 
-const FRAME_WIDHT: u32 = 200;
+const FRAME_WIDHT: u32 = 1920;
 const FRAME_HEIGHT: u32 = (FRAME_WIDHT as f32 / ASPECT) as u32;
 
 #[derive(Debug, Copy, Clone)]
@@ -98,16 +101,53 @@ fn random_scene(rng: &mut oorandom::Rand32) -> Vec<Sphere> {
 }
 
 fn main() -> Result<(), io::Error> {
-    let mut rng = oorandom::Rand32::new(188557);
+    let mut scene_rng = oorandom::Rand32::new_inc(188557, THREAD_COUNT as u64 + 1);
+    let spheres = Arc::new(random_scene(&mut scene_rng));
 
-    let spheres = random_scene(&mut rng);
-    let mut render_target: Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
-    render(&mut rng, &spheres[..], &mut render_target);
+    let thread_targets = Arc::new(Mutex::new(Vec::with_capacity(THREAD_COUNT as usize)));
+    let mut render_threads = Vec::with_capacity(THREAD_COUNT as usize);
+
+    for thread_idx in 0..THREAD_COUNT {
+        let spheres = spheres.clone();
+        let thread_targets = thread_targets.clone();
+        let mut rng = oorandom::Rand32::new_inc(188557, thread_idx as u64);
+        let mut render_target: Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
+
+        render_threads.push(thread::spawn(move || {
+            render(thread_idx, &mut rng, &spheres[..], &mut render_target);
+
+            let mut targets = thread_targets.lock().unwrap();
+            targets.push(render_target);
+        }));
+    }
+
+    for render_thread in render_threads {
+        render_thread.join();
+    }
+
+    let mut merged_targets:Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
+    let mut targets = thread_targets.lock().unwrap();
+
+    for target in targets.drain(..) {
+        for y in 0..target.height {
+            for x in 0..target.width {
+                let lhs = merged_targets.pixel(x, y);
+                let rhs = target.pixel(x, y);
+
+                *merged_targets.pixel_mut(x, y) = LinearRgb {
+                    r: lhs.r + rhs.r / THREAD_COUNT as f32,
+                    g: lhs.g + rhs.g / THREAD_COUNT as f32,
+                    b: lhs.b + rhs.b / THREAD_COUNT as f32,
+                };
+            }
+        }
+    }
 
     let mut frame: Texture<Srgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
-    render_target.copy_to(&mut frame, |p| {
+    merged_targets.copy_to(&mut frame, |p| {
         let color = v3(p.r.sqrt(), p.g.sqrt(), p.b.sqrt());
         let rgb = v3(255., 255., 255.) * color.saturate();
+
 
         Srgb {
             r: rgb.x as u8,
@@ -118,7 +158,7 @@ fn main() -> Result<(), io::Error> {
     frame::save_as_ppm(Path::new("render.ppm"), &frame)
 }
 
-fn render(rng: &mut oorandom::Rand32, spheres: &[Sphere], render_target: &mut Texture<LinearRgb>) {
+fn render(thread_idx: u32, rng: &mut oorandom::Rand32, spheres: &[Sphere], render_target: &mut Texture<LinearRgb>) {
     let lookat_from = p3(13., 2., -3.);
     let lookat_to = p3(0., 0., 0.);
 
@@ -141,11 +181,12 @@ fn render(rng: &mut oorandom::Rand32, spheres: &[Sphere], render_target: &mut Te
     let lower_left = origin - viewport_u / 2. - viewport_v / 2. + focus_dist * w;
     let lens_radius = aperture / 2.0;
 
+    let thread_spp = SPP / THREAD_COUNT;
     for y in 0..render_target.height {
         for x in 0..render_target.width {
-            let weight = 1. / SPP as f32;
+            let weight = 1. / thread_spp as f32;
             let mut color = v3(0., 0., 0.);
-            for _ in 0..SPP {
+            for _ in 0..thread_spp {
                 let s = (x as f32 + rng.rand_float()) / (render_target.width - 1) as f32;
                 let t = ((render_target.height - y) as f32 - rng.rand_float()) as f32
                     / (render_target.height - 1) as f32;
@@ -169,7 +210,7 @@ fn render(rng: &mut oorandom::Rand32, spheres: &[Sphere], render_target: &mut Te
         }
 
         let per = y as f32 / render_target.height as f32 * 100.;
-        println!("{}%", per);
+        println!("thread {}: {}%", thread_idx, per);
     }
 }
 
