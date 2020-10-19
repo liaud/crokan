@@ -1,4 +1,4 @@
-use std::ops::{Add, Mul, Sub, Neg, Div};
+use std::ops::{Add, Mul, Sub, Neg, Div, Index};
 use crate::approx::ApproxEq;
 
 #[derive(Debug, Copy, Clone)]
@@ -246,6 +246,19 @@ impl Vec3 {
         Vec2 {
             x: self.x,
             y: self.y
+        }
+    }
+
+    #[inline]
+    pub fn dim(self, d: usize) -> f32 {
+        if d == 0 {
+            self.x
+        } else if d == 1 {
+            self.y
+        } else if d == 2 {
+            self.z
+        } else {
+            panic!(r#"invalid dimension"#);
         }
     }
 }

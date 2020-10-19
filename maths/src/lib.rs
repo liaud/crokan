@@ -2,10 +2,12 @@
 pub mod approx;
 pub mod vec;
 pub mod ray;
+pub mod aabb;
 
 pub use self::approx::*;
 pub use self::vec::*;
 pub use self::ray::*;
+pub use self::aabb::Aabb3;
 
 pub type Point3 = Vec3;
 
