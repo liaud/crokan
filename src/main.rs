@@ -122,7 +122,7 @@ fn main() -> Result<(), io::Error> {
     }
 
     for render_thread in render_threads {
-        render_thread.join();
+        render_thread.join().expect("render thread failed unexpectedly");
     }
 
     let mut merged_targets:Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
@@ -276,11 +276,6 @@ fn trace(rng: &mut oorandom::Rand32, spheres: &[Sphere], trace_ray: &Ray, depth:
     start_bg_color.lerp(end_bg_color, trace_ray.d.unit().y)
 }
 
-#[derive(Debug, Copy, Clone)]
-pub struct RayConstraint {
-    start: f32,
-    end: f32,
-}
 
 impl RayConstraint {
     pub fn none() -> Self {
@@ -335,6 +330,24 @@ fn intersect(sphere: &Sphere, ray: &Ray) -> Option<(f32, f32)> {
     let c = center_to_ray.dot(center_to_ray) - sphere.radius * sphere.radius;
 
     maths::quadratic(a, b, c)
+}
+
+fn spheres_bounding_boxes(spheres: &[Sphere]) -> Aabb3 {
+    let mut englobing = aabb3::empty();
+    for sphere in spheres {
+        englobing = englobing.union(bounding_box(sphere));
+    }
+
+    englobing
+}
+
+fn bounding_box(sphere: &Sphere) -> Aabb3 {
+    let offset = v3(sphere.radius, sphere.radius, sphere.radius);
+
+    Aabb3 {
+        min: sphere.center - offset,
+        max: sphere.center + offset,
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]

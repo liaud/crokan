@@ -142,6 +142,22 @@ macro_rules! impl_vec {
                     )+
                 }
             }
+
+            pub fn min(self, rhs: Self) -> Self {
+                $t {
+                    $(
+                        $field: self.$field.min(rhs.$field),
+                    )*
+                }
+            }
+
+            pub fn max(self, rhs: Self) -> Self {
+                $t {
+                    $(
+                        $field: self.$field.max(rhs.$field),
+                    )*
+                }
+            }
         }
     };
 }

@@ -7,7 +7,7 @@ pub mod aabb;
 pub use self::approx::*;
 pub use self::vec::*;
 pub use self::ray::*;
-pub use self::aabb::Aabb3;
+pub use self::aabb::*;
 
 pub type Point3 = Vec3;
 
