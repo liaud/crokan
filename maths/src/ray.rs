@@ -21,3 +21,12 @@ pub struct RayConstraint {
     pub start: f32,
     pub end: f32,
 }
+
+impl RayConstraint {
+    pub fn none() -> Self {
+        Self {
+            start: 0.,
+            end: f32::INFINITY,
+        }
+    }
+}

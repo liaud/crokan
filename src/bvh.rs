@@ -26,7 +26,7 @@ impl StaticBvh {
         if self.nodes.is_empty() {
             return None;
         }
-        self.intersect_node(&self.nodes[0], ray, constraint)
+        self.intersect_node(entities, &self.nodes[0], ray, constraint)
     }
 
     fn intersect_node(
@@ -36,21 +36,27 @@ impl StaticBvh {
         ray: &Ray,
         constraints: &RayConstraint,
     ) -> Option<f32> {
+        use self::BvhNode::*;
+
         match node {
             Leaf { entity } => {
-                crate::intersect_sphere(&entities[entity], ray, constraints)
+                crate::intersect_sphere(&entities[*entity], ray, constraints)
             }
             Internal { left, right, aabb } => {
-                let left_intersection = self.intersect_node(&self.nodes[node.left], ray, constraints);
+                if !aabb.intersect(ray, constraints) {
+                    return None;
+                }
+
+                let left_intersection = self.intersect_node(entities, &self.nodes[*left], ray, constraints);
                 let constraints = match left_intersection {
                     Some(t) => RayConstraint {
-                        max: t,
-                        ..constraints
+                        end: t,
+                        ..*constraints
                     },
                     None => *constraints,
                 };
 
-                let right_intersection = self.intersect_node(&self.nodes[node.right], ray, &constraints);
+                let right_intersection = self.intersect_node(entities, &self.nodes[*right], ray, &constraints);
                 right_intersection.or(left_intersection)
             }
         }

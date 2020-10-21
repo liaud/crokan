@@ -1,4 +1,5 @@
 mod frame;
+mod bvh;
 
 use crate::frame::{Texture, Srgb, LinearRgb};
 use maths::*;
@@ -220,7 +221,7 @@ fn trace(rng: &mut oorandom::Rand32, spheres: &[Sphere], trace_ray: &Ray, depth:
     }
 
     if let Some(Intersection { t, entity }) =
-        intersect_any(&spheres[..], &trace_ray, RayConstraint::none())
+        closest(&spheres[..], &trace_ray, &RayConstraint::none())
     {
         let sphere = &spheres[entity];
         let surface = surface_at(sphere, &trace_ray, t);
@@ -276,60 +277,45 @@ fn trace(rng: &mut oorandom::Rand32, spheres: &[Sphere], trace_ray: &Ray, depth:
     start_bg_color.lerp(end_bg_color, trace_ray.d.unit().y)
 }
 
-
-impl RayConstraint {
-    pub fn none() -> Self {
-        Self {
-            start: 0.,
-            end: f32::INFINITY,
-        }
-    }
-}
 #[derive(Debug, Copy, Clone)]
 pub struct Intersection {
     entity: usize,
     t: f32,
 }
 
-fn intersect_any(spheres: &[Sphere], ray: &Ray, constraint: RayConstraint) -> Option<Intersection> {
+fn closest(spheres: &[Sphere], ray: &Ray, constraints: &RayConstraint) -> Option<Intersection> {
     let mut intersection: Option<Intersection> = None;
+
+    let mut running_constraints = *constraints;
     for (i, sphere) in spheres.iter().enumerate() {
-        let found = match intersect(sphere, ray) {
+        let found = match intersect_sphere(sphere, ray, &running_constraints) {
             Some(found) => found,
             None => continue,
         };
 
-        let min_valid = if found.0 >= constraint.start && found.0 < constraint.end {
-            found.0
-        } else if found.1 >= constraint.start && found.1 < constraint.end {
-            found.1
-        } else {
-            continue;
-        };
-
         let candidate = Intersection {
-            t: min_valid,
+            t: found,
             entity: i,
         };
-
-        match intersection {
-            Some(current) if current.t > candidate.t => intersection = Some(candidate),
-            None => intersection = Some(candidate),
-            _ => {}
-        }
+        running_constraints.end = found;
+        intersection = Some(candidate);
     }
 
     intersection
 }
 
-fn intersect(sphere: &Sphere, ray: &Ray) -> Option<(f32, f32)> {
+pub(crate) fn intersect_sphere(sphere: &Sphere, ray: &Ray, constraints: &RayConstraint) -> Option<f32> {
     let center_to_ray = ray.o - sphere.center;
 
     let a = ray.d.dot(ray.d);
     let b = 2.0 * ray.d.dot(center_to_ray);
     let c = center_to_ray.dot(center_to_ray) - sphere.radius * sphere.radius;
 
-    maths::quadratic(a, b, c)
+    match maths::quadratic(a, b, c) {
+        Some((t0, _)) if t0 >= constraints.start && t0 < constraints.end => Some(t0),
+        Some((_, t1)) if t1 >= constraints.start && t1 < constraints.end => Some(t1),
+        _ => None
+    }
 }
 
 fn spheres_bounding_boxes(spheres: &[Sphere]) -> Aabb3 {

@@ -1,4 +1,4 @@
-use std::ops::{Add, Mul, Sub, Neg, Div, Index};
+use std::ops::{Add, Mul, Sub, Neg, Div};
 use crate::approx::ApproxEq;
 
 #[derive(Debug, Copy, Clone)]
@@ -168,7 +168,6 @@ impl_vec!(Vec4 { x, y, z, w });
 
 pub use self::v3::*;
 pub use self::p3::*;
-pub use self::v2::*;
 
 pub mod v2 {
     use super::Vec2;
