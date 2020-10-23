@@ -21,14 +21,17 @@ impl Aabb3 {
             }
 
             let t_min = if t0 > constraints.start { t0 } else { constraints.start };
-            let t_max = if t0 < constraints.end { t0 } else { constraints.end };
+            let t_max = if t1 < constraints.end { t1 } else { constraints.end };
 
             if t_max <= t_min {
                 return false;
             }
         }
-
         true
+    }
+
+    pub fn center(self) -> Point3 {
+        self.min + (self.max - self.min) / 2.
     }
 
     pub fn union(self, rhs: Aabb3) -> Self {

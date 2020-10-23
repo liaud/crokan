@@ -10,10 +10,10 @@ use std::thread;
 
 const ASPECT: f32 = 3. / 2.;
 const MAX_DEPTH: u32 = 50;
-const SPP: u32 = 500;
+const SPP: u32 = 50;
 const THREAD_COUNT: u32 = 16;
 
-const FRAME_WIDHT: u32 = 1920;
+const FRAME_WIDHT: u32 = 256;
 const FRAME_HEIGHT: u32 = (FRAME_WIDHT as f32 / ASPECT) as u32;
 
 #[derive(Debug, Copy, Clone)]
@@ -101,21 +101,39 @@ fn random_scene(rng: &mut oorandom::Rand32) -> Vec<Sphere> {
     spheres
 }
 
+fn debug_scene(_rng: &mut oorandom::Rand32) -> Vec<Sphere> {
+    vec![
+        Sphere {
+            center: p3(0., 0., 0.),
+            radius: 1.0,
+            material: Material::Metallic {
+                albedo: v3(0.7, 0.6, 0.5),
+                fuzz: 0.0
+            }
+        }
+    ]
+}
+
 fn main() -> Result<(), io::Error> {
     let mut scene_rng = oorandom::Rand32::new_inc(188557, THREAD_COUNT as u64 + 1);
     let spheres = Arc::new(random_scene(&mut scene_rng));
+    // let spheres = Arc::new(debug_scene(&mut scene_rng));
+
+    let bvh = Arc::new(bvh::StaticBvh::with_entities(&spheres[..], &mut scene_rng));
+    dbg!(&bvh);
 
     let thread_targets = Arc::new(Mutex::new(Vec::with_capacity(THREAD_COUNT as usize)));
     let mut render_threads = Vec::with_capacity(THREAD_COUNT as usize);
 
     for thread_idx in 0..THREAD_COUNT {
         let spheres = spheres.clone();
+        let bvh = bvh.clone();
         let thread_targets = thread_targets.clone();
         let mut rng = oorandom::Rand32::new_inc(188557, thread_idx as u64);
         let mut render_target: Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
 
         render_threads.push(thread::spawn(move || {
-            render(thread_idx, &mut rng, &spheres[..], &mut render_target);
+            render(thread_idx, &mut rng, &bvh, &spheres[..], &mut render_target);
 
             let mut targets = thread_targets.lock().unwrap();
             targets.push(render_target);
@@ -159,7 +177,7 @@ fn main() -> Result<(), io::Error> {
     frame::save_as_ppm(Path::new("render.ppm"), &frame)
 }
 
-fn render(thread_idx: u32, rng: &mut oorandom::Rand32, spheres: &[Sphere], render_target: &mut Texture<LinearRgb>) {
+fn render(thread_idx: u32, rng: &mut oorandom::Rand32, bvh: &bvh::StaticBvh, spheres: &[Sphere], render_target: &mut Texture<LinearRgb>) {
     let lookat_from = p3(13., 2., -3.);
     let lookat_to = p3(0., 0., 0.);
 
@@ -199,7 +217,7 @@ fn render(thread_idx: u32, rng: &mut oorandom::Rand32, spheres: &[Sphere], rende
                     (lower_left + viewport_u * s + viewport_v * t) - origin - offset,
                 );
 
-                color = color + weight * trace(rng, &spheres[..], &ray, MAX_DEPTH);
+                color = color + weight * trace(rng, bvh, &spheres[..], &ray, MAX_DEPTH);
             }
 
 
@@ -215,13 +233,13 @@ fn render(thread_idx: u32, rng: &mut oorandom::Rand32, spheres: &[Sphere], rende
     }
 }
 
-fn trace(rng: &mut oorandom::Rand32, spheres: &[Sphere], trace_ray: &Ray, depth: u32) -> Vec3 {
+fn trace(rng: &mut oorandom::Rand32, bvh: &bvh::StaticBvh, spheres: &[Sphere], trace_ray: &Ray, depth: u32) -> Vec3 {
     if depth == 0 {
         return v3(0., 0., 0.);
     }
 
     if let Some(Intersection { t, entity }) =
-        closest(&spheres[..], &trace_ray, &RayConstraint::none())
+        bvh.intersect(&spheres[..], &trace_ray, &RayConstraint::none())
     {
         let sphere = &spheres[entity];
         let surface = surface_at(sphere, &trace_ray, t);
@@ -230,12 +248,12 @@ fn trace(rng: &mut oorandom::Rand32, spheres: &[Sphere], trace_ray: &Ray, depth:
             Material::Lambertian { albedo } => {
                 let target = surface.p + surface.n + random_unit_vector(rng);
                 let diffuse_ray = ray(surface.p + 0.001 * surface.n, target - surface.p);
-                return albedo * trace(rng, spheres, &diffuse_ray, depth - 1);
+                return albedo * trace(rng, bvh, spheres, &diffuse_ray, depth - 1);
             }
             Material::Metallic { albedo, fuzz } => {
                 let reflected = trace_ray.d.reflect(surface.n);
                 let scattered_ray = ray(surface.p + 0.001 * surface.n, reflected + fuzz * random_unit_vector(rng)) ;
-                return albedo * trace(rng, spheres, &scattered_ray, depth - 1);
+                return albedo * trace(rng, bvh, spheres, &scattered_ray, depth - 1);
             }
             Material::Dialectric { ri } => {
                 let etai_over_etat = if surface.face == Face::Front {
@@ -253,21 +271,21 @@ fn trace(rng: &mut oorandom::Rand32, spheres: &[Sphere], trace_ray: &Ray, depth:
                     let reflected = ray_dir_unit.reflect(surface.n);
                     let reflected_ray = ray(surface.p + 0.001 * surface.n, reflected);
 
-                    return trace(rng, spheres, &reflected_ray, depth - 1);
+                    return trace(rng, bvh, spheres, &reflected_ray, depth - 1);
                 }
 
                 let reflect_probability = maths::schlick(cos_theta, etai_over_etat);
                 if rng.rand_float() < reflect_probability {
                     let reflected = ray_dir_unit.reflect(surface.n);
                     let reflected_ray = ray(surface.p + 0.001 * surface.n, reflected);
-                    return trace(rng, spheres, &reflected_ray, depth - 1);
+                    return trace(rng, bvh, spheres, &reflected_ray, depth - 1);
                 }
 
                 let refracted_ray = ray(
                     surface.p - 0.001 * surface.n,
                     ray_dir_unit.refract(surface.n, etai_over_etat),
                 );
-                return trace(rng, spheres, &refracted_ray, depth - 1);
+                return trace(rng, bvh, spheres, &refracted_ray, depth - 1);
             }
         }
     }
@@ -316,15 +334,6 @@ pub(crate) fn intersect_sphere(sphere: &Sphere, ray: &Ray, constraints: &RayCons
         Some((_, t1)) if t1 >= constraints.start && t1 < constraints.end => Some(t1),
         _ => None
     }
-}
-
-fn spheres_bounding_boxes(spheres: &[Sphere]) -> Aabb3 {
-    let mut englobing = aabb3::empty();
-    for sphere in spheres {
-        englobing = englobing.union(bounding_box(sphere));
-    }
-
-    englobing
 }
 
 fn bounding_box(sphere: &Sphere) -> Aabb3 {
