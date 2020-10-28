@@ -1,19 +1,19 @@
-mod frame;
 mod bvh;
+mod frame;
 
-use crate::frame::{Texture, Srgb, LinearRgb};
+use crate::frame::{LinearRgb, Srgb, Texture};
 use maths::*;
 use std::io;
 use std::path::Path;
-use std::sync::{Mutex, Arc};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
-const ASPECT: f32 = 3. / 2.;
+const ASPECT: f32 = 16. / 9.;
 const MAX_DEPTH: u32 = 50;
-const SPP: u32 = 50;
+const SPP: u32 = 1500;
 const THREAD_COUNT: u32 = 16;
 
-const FRAME_WIDHT: u32 = 256;
+const FRAME_WIDHT: u32 = 1920;
 const FRAME_HEIGHT: u32 = (FRAME_WIDHT as f32 / ASPECT) as u32;
 
 #[derive(Debug, Copy, Clone)]
@@ -21,6 +21,7 @@ pub enum Material {
     Lambertian { albedo: Vec3 },
     Metallic { albedo: Vec3, fuzz: f32 },
     Dialectric { ri: f32 },
+    EmissiveDiffuse { intensity: Vec3 },
 }
 
 pub struct Sphere {
@@ -52,7 +53,11 @@ fn random_scene(rng: &mut oorandom::Rand32) -> Vec<Sphere> {
     for a in -11..11 {
         for b in -11..11 {
             let material_choice = rng.rand_float();
-            let center = v3(a as f32 + 0.9 * rng.rand_float(), 0.2, b as f32 + 0.9 * rng.rand_float());
+            let center = v3(
+                a as f32 + 0.9 * rng.rand_float(),
+                0.2,
+                b as f32 + 0.9 * rng.rand_float(),
+            );
 
             if (center - p3(4., 0.2, 0.)).length() > 0.9 {
                 let material = if material_choice < 0.8 {
@@ -80,22 +85,22 @@ fn random_scene(rng: &mut oorandom::Rand32) -> Vec<Sphere> {
     spheres.push(Sphere {
         center: p3(0., 1., 0.),
         radius: 1.0,
-        material: Material::Dialectric {
-            ri: 1.5
-        }
+        material: Material::Dialectric { ri: 1.5 },
     });
     spheres.push(Sphere {
         center: p3(-4., 1.0, 0.),
         radius: 1.0,
-        material: Material::Lambertian { albedo: v3(0.4, 0.2, 0.1) },
+        material: Material::Lambertian {
+            albedo: v3(0.4, 0.2, 0.1),
+        },
     });
     spheres.push(Sphere {
         center: p3(4., 1., 0.),
         radius: 1.0,
         material: Material::Metallic {
             albedo: v3(0.7, 0.6, 0.5),
-            fuzz: 0.0
-        }
+            fuzz: 0.0,
+        },
     });
 
     spheres
@@ -104,20 +109,41 @@ fn random_scene(rng: &mut oorandom::Rand32) -> Vec<Sphere> {
 fn debug_scene(_rng: &mut oorandom::Rand32) -> Vec<Sphere> {
     vec![
         Sphere {
-            center: p3(0., 0., 0.),
+            center: p3(0., -1000.0, 0.),
+            radius: 1000.,
+            material: Material::Lambertian {
+                albedo: v3(0.5, 0.5, 0.5),
+            },
+        },
+        Sphere {
+            center: p3(-2.5, 1., 0.),
+            radius: 1.0,
+            material: Material::Lambertian {
+                albedo: v3(0.4, 0.2, 0.1),
+            },
+        },
+        Sphere {
+            center: p3(0., 3.0, 1.5),
+            radius: 1.0,
+            material: Material::EmissiveDiffuse {
+                intensity: v3(4.0, 4.0, 4.0),
+            },
+        },
+        Sphere {
+            center: p3(2.5, 1., 0.),
             radius: 1.0,
             material: Material::Metallic {
                 albedo: v3(0.7, 0.6, 0.5),
-                fuzz: 0.0
-            }
-        }
+                fuzz: 0.4,
+            },
+        },
     ]
 }
 
 fn main() -> Result<(), io::Error> {
     let mut scene_rng = oorandom::Rand32::new_inc(188557, THREAD_COUNT as u64 + 1);
-    let spheres = Arc::new(random_scene(&mut scene_rng));
-    // let spheres = Arc::new(debug_scene(&mut scene_rng));
+    //let spheres = Arc::new(random_scene(&mut scene_rng));
+    let spheres = Arc::new(debug_scene(&mut scene_rng));
 
     let bvh = Arc::new(bvh::StaticBvh::with_entities(&spheres[..], &mut scene_rng));
     dbg!(&bvh);
@@ -141,10 +167,12 @@ fn main() -> Result<(), io::Error> {
     }
 
     for render_thread in render_threads {
-        render_thread.join().expect("render thread failed unexpectedly");
+        render_thread
+            .join()
+            .expect("render thread failed unexpectedly");
     }
 
-    let mut merged_targets:Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
+    let mut merged_targets: Texture<LinearRgb> = Texture::new(FRAME_WIDHT, FRAME_HEIGHT);
     let mut targets = thread_targets.lock().unwrap();
 
     for target in targets.drain(..) {
@@ -167,7 +195,6 @@ fn main() -> Result<(), io::Error> {
         let color = v3(p.r.sqrt(), p.g.sqrt(), p.b.sqrt());
         let rgb = v3(255., 255., 255.) * color.saturate();
 
-
         Srgb {
             r: rgb.x as u8,
             g: rgb.y as u8,
@@ -177,12 +204,18 @@ fn main() -> Result<(), io::Error> {
     frame::save_as_ppm(Path::new("render.ppm"), &frame)
 }
 
-fn render(thread_idx: u32, rng: &mut oorandom::Rand32, bvh: &bvh::StaticBvh, spheres: &[Sphere], render_target: &mut Texture<LinearRgb>) {
-    let lookat_from = p3(13., 2., -3.);
+fn render(
+    thread_idx: u32,
+    rng: &mut oorandom::Rand32,
+    bvh: &bvh::StaticBvh,
+    spheres: &[Sphere],
+    render_target: &mut Texture<LinearRgb>,
+) {
+    let lookat_from = p3(0., 2., -20.);
     let lookat_to = p3(0., 0., 0.);
 
     let aperture = 0.1;
-    let focus_dist = 10.;
+    let focus_dist = (lookat_from - lookat_to).length();
     let vup = v3::up();
 
     let w = (lookat_to - lookat_from).unit();
@@ -220,7 +253,6 @@ fn render(thread_idx: u32, rng: &mut oorandom::Rand32, bvh: &bvh::StaticBvh, sph
                 color = color + weight * trace(rng, bvh, &spheres[..], &ray, MAX_DEPTH);
             }
 
-
             *render_target.pixel_mut(x, y) = LinearRgb {
                 r: color.x,
                 g: color.y,
@@ -233,7 +265,13 @@ fn render(thread_idx: u32, rng: &mut oorandom::Rand32, bvh: &bvh::StaticBvh, sph
     }
 }
 
-fn trace(rng: &mut oorandom::Rand32, bvh: &bvh::StaticBvh, spheres: &[Sphere], trace_ray: &Ray, depth: u32) -> Vec3 {
+fn trace(
+    rng: &mut oorandom::Rand32,
+    bvh: &bvh::StaticBvh,
+    spheres: &[Sphere],
+    trace_ray: &Ray,
+    depth: u32,
+) -> Vec3 {
     if depth == 0 {
         return v3(0., 0., 0.);
     }
@@ -252,7 +290,10 @@ fn trace(rng: &mut oorandom::Rand32, bvh: &bvh::StaticBvh, spheres: &[Sphere], t
             }
             Material::Metallic { albedo, fuzz } => {
                 let reflected = trace_ray.d.reflect(surface.n);
-                let scattered_ray = ray(surface.p + 0.001 * surface.n, reflected + fuzz * random_unit_vector(rng)) ;
+                let scattered_ray = ray(
+                    surface.p + 0.001 * surface.n,
+                    reflected + fuzz * random_unit_vector(rng),
+                );
                 return albedo * trace(rng, bvh, spheres, &scattered_ray, depth - 1);
             }
             Material::Dialectric { ri } => {
@@ -287,12 +328,16 @@ fn trace(rng: &mut oorandom::Rand32, bvh: &bvh::StaticBvh, spheres: &[Sphere], t
                 );
                 return trace(rng, bvh, spheres, &refracted_ray, depth - 1);
             }
+            Material::EmissiveDiffuse { intensity } => {
+                return intensity;
+            }
         }
     }
 
-    let end_bg_color = v3(255., 255., 255.) / 255.;
-    let start_bg_color = v3(0.5, 0.7, 1.0);
-    start_bg_color.lerp(end_bg_color, trace_ray.d.unit().y)
+    // let end_bg_color = v3(255., 255., 255.) / 255.;
+    // let start_bg_color = v3(0.5, 0.7, 1.0);
+    // start_bg_color.lerp(end_bg_color, trace_ray.d.unit().y)
+    v3(0., 0., 0.)
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -322,7 +367,11 @@ fn closest(spheres: &[Sphere], ray: &Ray, constraints: &RayConstraint) -> Option
     intersection
 }
 
-pub(crate) fn intersect_sphere(sphere: &Sphere, ray: &Ray, constraints: &RayConstraint) -> Option<f32> {
+pub(crate) fn intersect_sphere(
+    sphere: &Sphere,
+    ray: &Ray,
+    constraints: &RayConstraint,
+) -> Option<f32> {
     let center_to_ray = ray.o - sphere.center;
 
     let a = ray.d.dot(ray.d);
@@ -332,7 +381,7 @@ pub(crate) fn intersect_sphere(sphere: &Sphere, ray: &Ray, constraints: &RayCons
     match maths::quadratic(a, b, c) {
         Some((t0, _)) if t0 >= constraints.start && t0 < constraints.end => Some(t0),
         Some((_, t1)) if t1 >= constraints.start && t1 < constraints.end => Some(t1),
-        _ => None
+        _ => None,
     }
 }
 
