@@ -48,6 +48,30 @@ macro_rules! impl_vec {
             }
         }
 
+        impl Div<$t> for f32 {
+            type Output = $t;
+
+            fn div(self, rhs: $t) -> $t {
+                $t {
+                    $(
+                        $field: self / rhs.$field,
+                    )+
+                }
+            }
+        }
+
+        impl Div<$t> for $t {
+            type Output = $t;
+
+            fn div(self, rhs: $t) -> $t {
+                $t {
+                    $(
+                        $field: self.$field / rhs.$field,
+                    )+
+                }
+            }
+        }
+
         impl Div<f32> for $t {
             type Output = Self;
 
@@ -143,6 +167,22 @@ macro_rules! impl_vec {
                 }
             }
 
+            pub fn floor(self) -> Self {
+                $t {
+                    $(
+                        $field: self.$field.floor(),
+                    )+
+                }
+            }
+
+            pub fn ceil(self) -> Self {
+                $t {
+                    $(
+                        $field: self.$field.ceil(),
+                    )+
+                }
+            }
+
             pub fn min(self, rhs: Self) -> Self {
                 $t {
                     $(
@@ -166,16 +206,29 @@ impl_vec!(Vec2 { x, y });
 impl_vec!(Vec3 { x, y, z });
 impl_vec!(Vec4 { x, y, z, w });
 
+pub use self::v2::*;
 pub use self::v3::*;
 pub use self::p3::*;
 
 pub mod v2 {
     use super::Vec2;
 
+    pub const ZERO: Vec2 = Vec2 { x: 0., y: 0. };
+
     pub fn v2(x: f32, y: f32) -> Vec2 {
         Vec2 {
             x, y
         }
+    }
+}
+
+impl Vec2 {
+    pub fn length(self) -> f32 {
+        self.dot(self).sqrt()
+    }
+
+    pub fn dot(self, rhs: Self) -> f32 {
+        self.x * rhs.x + self.y * rhs.y
     }
 }
 

@@ -10,6 +10,7 @@ pub use self::ray::*;
 pub use self::aabb::*;
 
 pub type Point3 = Vec3;
+pub type Point2 = Vec2;
 
 pub fn lerp(x: f32, y: f32, t: f32) -> f32 {
     x * (1. - t) + t * y

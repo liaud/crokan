@@ -1,4 +1,5 @@
 use crate::Sphere;
+use crate::rand;
 use maths::*;
 
 #[derive(Debug)]
@@ -20,7 +21,7 @@ pub struct StaticBvh {
 }
 
 impl StaticBvh {
-    pub fn with_entities(entities: &[Sphere], rng: &mut oorandom::Rand32) -> Self {
+    pub fn with_entities(entities: &[Sphere], rng: &mut rand::Rng) -> Self {
         let expected_node_count = ((entities.len() as f32).log2() as usize * entities.len()) / 2;
 
         let bounding_boxes: Vec<(usize, Aabb3)> = entities
@@ -42,7 +43,7 @@ impl StaticBvh {
     fn build_with_entities(
         &mut self,
         bounding_boxes: &[(usize, Aabb3)],
-        rng: &mut oorandom::Rand32,
+        rng: &mut rand::Rng,
     ) -> Option<usize> {
         match bounding_boxes.len() {
             0 => None,
@@ -61,7 +62,7 @@ impl StaticBvh {
                 Some(offset)
             }
             len => {
-                let split_axis = (3. * rng.rand_float()).min(2.0) as usize;
+                let split_axis = (3. * rng.next_zero_one()).min(2.0) as usize;
                 let mut splitted: Vec<_> = bounding_boxes.into_iter().copied().collect();
                 splitted.sort_by(|(_, lhs), (_, rhs)| {
                     lhs.center()
